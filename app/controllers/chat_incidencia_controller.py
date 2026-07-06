@@ -1,56 +1,39 @@
-from flask import Blueprint, request, jsonify
-from app.database import db
-from app.models.chat_incidencia import ChatIncidencia
-from app.models.ticket import Ticket
-from app.models.cliente import Cliente
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List
 from datetime import datetime
+from app.database import get_db
+from app.models.chat_incidencia import ChatIncidencia as ChatIncidenciaModel
+from app.models.ticket import Ticket as TicketModel
+from app.models.cliente import Cliente as ClienteModel
+from app.schemas.chat_incidencia import ChatIncidencia, ChatIncidenciaCreate
 
-chat_bp = Blueprint('chat_incidencia', __name__)
+chat_bp = APIRouter()
 
-def parse_date(date_str):
-    if not date_str:
-        return None
-    try:
-        if date_str.endswith('Z'):
-            date_str = date_str.replace('Z', '+00:00')
-        return datetime.fromisoformat(date_str)
-    except Exception:
-        return None
+@chat_bp.get("", response_model=List[ChatIncidencia])
+def get_chats(db: Session = Depends(get_db)):
+    return db.query(ChatIncidenciaModel).all()
 
-@chat_bp.route('', methods=['GET'])
-def get_chats():
-    chats = ChatIncidencia.query.all()
-    return jsonify([c.to_dict() for c in chats])
+@chat_bp.get("/ticket/{id_incidencia}", response_model=List[ChatIncidencia])
+def get_chats_by_ticket(id_incidencia: int, db: Session = Depends(get_db)):
+    return db.query(ChatIncidenciaModel).filter(ChatIncidenciaModel.id_incidencia == id_incidencia).order_by(ChatIncidenciaModel.fecha_envio.asc()).all()
 
-@chat_bp.route('/ticket/<int:id_incidencia>', methods=['GET'])
-def get_chats_by_ticket(id_incidencia):
-    chats = ChatIncidencia.query.filter_by(id_incidencia=id_incidencia).order_by(ChatIncidencia.fecha_envio.asc()).all()
-    return jsonify([c.to_dict() for c in chats])
-
-@chat_bp.route('', methods=['POST'])
-def create_chat():
-    data = request.get_json() or {}
-    required = ['mensaje', 'tipo_mensaje', 'id_incidencia', 'id_usuario']
-    for field in required:
-        if field not in data:
-            return jsonify({'error': f'Field {field} is required'}), 400
-
-    # Validate foreign keys
-    ticket = Ticket.query.get(data['id_incidencia'])
+@chat_bp.post("", response_model=ChatIncidencia, status_code=status.HTTP_201_CREATED)
+def create_chat(chat_data: ChatIncidenciaCreate, db: Session = Depends(get_db)):
+    ticket = db.query(TicketModel).filter(TicketModel.id_incidencia == chat_data.id_incidencia).first()
     if not ticket:
-        return jsonify({'error': 'Ticket (id_incidencia) not found'}), 404
-
-    cliente = Cliente.query.get(data['id_usuario'])
+        raise HTTPException(status_code=404, detail="Ticket (id_incidencia) not found")
+        
+    cliente = db.query(ClienteModel).filter(ClienteModel.id_usuario == chat_data.id_usuario).first()
     if not cliente:
-        return jsonify({'error': 'Cliente (id_usuario) not found'}), 404
-
-    chat = ChatIncidencia(
-        fecha_envio=parse_date(data.get('fecha_envio')) or datetime.utcnow(),
-        mensaje=data['mensaje'],
-        tipo_mensaje=data['tipo_mensaje'],
-        id_incidencia=data['id_incidencia'],
-        id_usuario=data['id_usuario']
-    )
-    db.session.add(chat)
-    db.session.commit()
-    return jsonify(chat.to_dict()), 201
+        raise HTTPException(status_code=404, detail="Cliente (id_usuario) not found")
+        
+    db_data = chat_data.model_dump()
+    if not db_data.get('fecha_envio'):
+        db_data['fecha_envio'] = datetime.utcnow()
+        
+    chat = ChatIncidenciaModel(**db_data)
+    db.add(chat)
+    db.commit()
+    db.refresh(chat)
+    return chat

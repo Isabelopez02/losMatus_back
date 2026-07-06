@@ -1,8 +1,11 @@
 import os
+from dotenv import load_dotenv
 
-class Config:
-    SECRET_KEY = os.environ.get('SECRET_KEY') or 'super-secret-key-change-me'
-    BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-    SQLALCHEMY_DATABASE_URI = os.environ.get('DATABASE_URL') or \
-        f'sqlite:///{os.path.join(os.path.dirname(BASE_DIR), "database.db")}'
-    SQLALCHEMY_TRACK_MODIFICATIONS = False
+# Load environment variables from .env
+load_dotenv()
+
+class Settings:
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-key-change-me")
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./database.db")
+
+settings = Settings()

@@ -1,69 +1,59 @@
-from flask import Blueprint, request, jsonify
-from app.database import db
-from app.models.cliente import Cliente
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List
+from app.database import get_db
+from app.models.cliente import Cliente as ClienteModel
+from app.schemas.cliente import Cliente, ClienteCreate
 
-cliente_bp = Blueprint('cliente', __name__)
+cliente_bp = APIRouter()
 
-@cliente_bp.route('', methods=['GET'])
-def get_clientes():
-    clientes = Cliente.query.all()
-    return jsonify([c.to_dict() for c in clientes])
+@cliente_bp.get("", response_model=List[Cliente])
+def get_clientes(db: Session = Depends(get_db)):
+    return db.query(ClienteModel).all()
 
-@cliente_bp.route('/<int:id_usuario>', methods=['GET'])
-def get_cliente(id_usuario):
-    cliente = Cliente.query.get_or_404(id_usuario)
-    return jsonify(cliente.to_dict())
+@cliente_bp.get("/{id_usuario}", response_model=Cliente)
+def get_cliente(id_usuario: int, db: Session = Depends(get_db)):
+    cliente = db.query(ClienteModel).filter(ClienteModel.id_usuario == id_usuario).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente not found")
+    return cliente
 
-@cliente_bp.route('', methods=['POST'])
-def create_cliente():
-    data = request.get_json() or {}
-    required = ['nombre', 'apellido_paterno', 'apellido_materno', 'email', 'telefono', 'direccion']
-    for field in required:
-        if field not in data:
-            return jsonify({'error': f'Field {field} is required'}), 400
+@cliente_bp.post("", response_model=Cliente, status_code=status.HTTP_201_CREATED)
+def create_cliente(cliente_data: ClienteCreate, db: Session = Depends(get_db)):
+    existing = db.query(ClienteModel).filter(ClienteModel.email == cliente_data.email).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    
+    cliente = ClienteModel(**cliente_data.model_dump())
+    db.add(cliente)
+    db.commit()
+    db.refresh(cliente)
+    return cliente
 
-    if Cliente.query.filter_by(email=data['email']).first():
-        return jsonify({'error': 'Email already registered'}), 400
+@cliente_bp.put("/{id_usuario}", response_model=Cliente)
+def update_cliente(id_usuario: int, cliente_data: ClienteCreate, db: Session = Depends(get_db)):
+    cliente = db.query(ClienteModel).filter(ClienteModel.id_usuario == id_usuario).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente not found")
+    
+    if cliente_data.email != cliente.email:
+        existing = db.query(ClienteModel).filter(ClienteModel.email == cliente_data.email).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+    
+    for key, value in cliente_data.model_dump().items():
+        setattr(cliente, key, value)
+        
+    db.commit()
+    db.refresh(cliente)
+    return cliente
 
-    cliente = Cliente(
-        nombre=data['nombre'],
-        apellido_paterno=data['apellido_paterno'],
-        apellido_materno=data['apellido_materno'],
-        email=data['email'],
-        telefono=data['telefono'],
-        direccion=data['direccion'],
-        activo=data.get('activo', True),
-        telegram_id=data.get('telegram_id')
-    )
-    db.session.add(cliente)
-    db.session.commit()
-    return jsonify(cliente.to_dict()), 201
-
-@cliente_bp.route('/<int:id_usuario>', methods=['PUT'])
-def update_cliente(id_usuario):
-    cliente = Cliente.query.get_or_404(id_usuario)
-    data = request.get_json() or {}
-
-    if 'email' in data and data['email'] != cliente.email:
-        if Cliente.query.filter_by(email=data['email']).first():
-            return jsonify({'error': 'Email already registered'}), 400
-        cliente.email = data['email']
-
-    cliente.nombre = data.get('nombre', cliente.nombre)
-    cliente.apellido_paterno = data.get('apellido_paterno', cliente.apellido_paterno)
-    cliente.apellido_materno = data.get('apellido_materno', cliente.apellido_materno)
-    cliente.telefono = data.get('telefono', cliente.telefono)
-    cliente.direccion = data.get('direccion', cliente.direccion)
-    cliente.activo = data.get('activo', cliente.activo)
-    cliente.telegram_id = data.get('telegram_id', cliente.telegram_id)
-
-    db.session.commit()
-    return jsonify(cliente.to_dict())
-
-@cliente_bp.route('/<int:id_usuario>', methods=['DELETE'])
-def delete_cliente(id_usuario):
-    cliente = Cliente.query.get_or_404(id_usuario)
-    # Instead of hard-delete, we can soft-delete by deactivating
+@cliente_bp.delete("/{id_usuario}")
+def delete_cliente(id_usuario: int, db: Session = Depends(get_db)):
+    cliente = db.query(ClienteModel).filter(ClienteModel.id_usuario == id_usuario).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente not found")
+    # Soft delete
     cliente.activo = False
-    db.session.commit()
-    return jsonify({'message': 'Cliente deactivated successfully', 'id_usuario': id_usuario})
+    db.commit()
+    return {"message": "Cliente deactivated successfully", "id_usuario": id_usuario}
