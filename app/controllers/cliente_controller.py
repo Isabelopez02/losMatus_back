@@ -22,7 +22,7 @@ def get_cliente(id_usuario: int, db: Session = Depends(get_db)):
 def create_cliente(cliente_data: ClienteCreate, db: Session = Depends(get_db)):
     existing = db.query(ClienteModel).filter(ClienteModel.email == cliente_data.email).first()
     if existing:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise HTTPException(status_code=400, detail="Email already registrado")
     
     cliente = ClienteModel(**cliente_data.model_dump())
     db.add(cliente)
