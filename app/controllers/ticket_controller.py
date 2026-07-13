@@ -8,6 +8,7 @@ from app.models.cliente import Cliente as ClienteModel
 from app.models.equipo import Equipo as EquipoModel
 from app.models.historial import Historial as HistorialModel
 from app.schemas.ticket import Ticket, TicketCreate, TicketUpdate
+from app.services.ai_service import analizar_incidencia
 
 ticket_bp = APIRouter()
 
@@ -57,6 +58,26 @@ def create_ticket(ticket_data: TicketCreate, db: Session = Depends(get_db)):
     db.add(historial)
     db.commit()
     
+    return ticket
+
+@ticket_bp.post("/{id_incidencia}/analizar", response_model=Ticket)
+def analizar_ticket(id_incidencia: int, db: Session = Depends(get_db)):
+    """Genera (o regenera) la sugerencia del copiloto IA para el técnico,
+    analizando la descripción de la incidencia. Guarda el resultado en el ticket."""
+    ticket = db.query(TicketModel).filter(TicketModel.id_incidencia == id_incidencia).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    analisis = analizar_incidencia(ticket.descripcion)
+    ticket.sugerencia_ia = analisis.get("sugerencia")
+    # Refinamos categoría/severidad con el análisis actual de la IA
+    if analisis.get("categoria"):
+        ticket.categoria = analisis["categoria"]
+    if analisis.get("severidad"):
+        ticket.severidad = analisis["severidad"]
+
+    db.commit()
+    db.refresh(ticket)
     return ticket
 
 @ticket_bp.put("/{id_incidencia}", response_model=Ticket)

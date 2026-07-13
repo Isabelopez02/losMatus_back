@@ -11,10 +11,13 @@ class Historial(Base):
     accion_realizada = Column(String(150), nullable=False)
     estado_anterior = Column(String(50), nullable=False)
     estado_nuevo = Column(String(50), nullable=False)
-    id_incidencia = Column(Integer, ForeignKey('tickets.id_incidencia'), nullable=False)
+    id_incidencia = Column(Integer, ForeignKey('tickets.id_incidencia'), nullable=True)
+    # Vínculo directo al equipo para la trazabilidad por QR (historial del equipo)
+    id_equipo = Column(Integer, ForeignKey('equipos.id_equipo'), nullable=True)
     id_usuario = Column(Integer, ForeignKey('clientes.id_usuario'), nullable=False)
     comentarios = Column(Text, nullable=True)
 
     # Relationships
     ticket = relationship("Ticket", backref="historiales")
+    equipo = relationship("Equipo", backref="historiales")
     cliente = relationship("Cliente", backref="historiales")

@@ -1,0 +1,19 @@
+# === Secretos / configuración local ===
+.env
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# === Bases de datos locales ===
+*.db
+database.db
+test.db
+
+# === IDE ===
+.idea/
+.vscode/

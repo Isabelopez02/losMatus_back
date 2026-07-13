@@ -17,6 +17,8 @@ class Ticket(Base):
     categoria = Column(String(50), nullable=False)
     estado_incidencia = Column(String(50), default='Abierto', nullable=False)
     severidad = Column(String(50), nullable=False)
+    # Recomendación técnica generada por la IA (copiloto para el técnico)
+    sugerencia_ia = Column(Text, nullable=True)
     id_usuario = Column(Integer, ForeignKey('clientes.id_usuario'), nullable=False)
     id_equipo = Column(Integer, ForeignKey('equipos.id_equipo'), nullable=True)
     id_tecnico = Column(Integer, nullable=True)

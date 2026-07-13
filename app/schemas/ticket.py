@@ -13,6 +13,7 @@ class TicketBase(BaseModel):
     categoria: str
     estado_incidencia: str = 'Abierto'
     severidad: str
+    sugerencia_ia: Optional[str] = None
     id_usuario: int
     id_equipo: Optional[int] = None
     id_tecnico: Optional[int] = None
@@ -31,6 +32,7 @@ class TicketUpdate(BaseModel):
     categoria: Optional[str] = None
     estado_incidencia: Optional[str] = None
     severidad: Optional[str] = None
+    sugerencia_ia: Optional[str] = None
     id_usuario: Optional[int] = None
     id_equipo: Optional[int] = None
     id_tecnico: Optional[int] = None

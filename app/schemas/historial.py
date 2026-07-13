@@ -7,7 +7,8 @@ class HistorialBase(BaseModel):
     accion_realizada: str
     estado_anterior: str
     estado_nuevo: str
-    id_incidencia: int
+    id_incidencia: Optional[int] = None
+    id_equipo: Optional[int] = None
     id_usuario: int
     comentarios: Optional[str] = None
 

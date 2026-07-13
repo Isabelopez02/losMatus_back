@@ -7,90 +7,133 @@ from app.models.chat_incidencia import ChatIncidencia
 from app.models.historial import Historial
 from datetime import datetime
 
+
 def seed():
+    """Reinicia el esquema y carga datos de demostración coherentes con el frontend."""
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
-    print("Database cleared and schema created successfully.")
+    print("Base de datos reiniciada y esquema creado correctamente.")
 
     db: Session = SessionLocal()
     try:
-        # 1. Create Cliente
-        cliente = Cliente(
-            nombre="Juan",
-            apellido_paterno="Pérez",
-            apellido_materno="Gómez",
-            email="juan.perez@example.com",
-            telefono="+51999999999",
-            direccion="Av. Siempreviva 742, Lima",
-            activo=True,
-            telegram_id="123456789"
-        )
-        db.add(cliente)
+        # ==========================================
+        # 1. CLIENTES
+        # ==========================================
+        clientes = [
+            Cliente(nombre="Isabel", apellido_paterno="Matus", apellido_materno="Díaz",
+                    email="isabel@matus.com", telefono="+56912345678",
+                    direccion="Av. Providencia 1200, Santiago", activo=True, telegram_id="isabel_matus",
+                    latitud=-33.4263, longitud=-70.6200),
+            Cliente(nombre="Carlos", apellido_paterno="Pérez", apellido_materno="Gómez",
+                    email="carlos.perez@gmail.com", telefono="+56987654321",
+                    direccion="Las Condes 340, Santiago", activo=True,
+                    latitud=-33.4089, longitud=-70.5710),
+            Cliente(nombre="Roberto", apellido_paterno="Soto", apellido_materno="Muñoz",
+                    email="roberto@soto.cl", telefono="+56955566677",
+                    direccion="Vitacura 9821, Santiago", activo=True,
+                    latitud=-33.3900, longitud=-70.5730),
+        ]
+        db.add_all(clientes)
         db.commit()
-        db.refresh(cliente)
-        print(f"Created Cliente: {cliente.nombre} with id {cliente.id_usuario}")
+        for c in clientes:
+            db.refresh(c)
+        print(f"Creados {len(clientes)} clientes.")
 
-        # 2. Create Equipo
-        equipo = Equipo(
-            codigo_qr="QR-EQ-001-XYZ",
-            nombre_equipo="Servidor Principal",
-            tipo_equipo="Servidor Rack",
-            marca="Dell",
-            modelo="PowerEdge R740",
-            ubicacion="Data Center - Rack 3",
-            estado="Activo",
-            id_usuario=cliente.id_usuario
-        )
-        db.add(equipo)
+        isabel, carlos, _roberto = clientes
+
+        # ==========================================
+        # 2. EQUIPOS
+        # ==========================================
+        equipos = [
+            Equipo(codigo_qr="QR-CAM-CCTV-001", nombre_equipo="Cámara Exterior Bullet 4K",
+                   tipo_equipo="Cámara", marca="Hikvision", modelo="DS-2CD2087G2",
+                   ubicacion="Entrada Principal - Patio", estado="Activo", id_usuario=isabel.id_usuario),
+            Equipo(codigo_qr="QR-BIO-LCT-002", nombre_equipo="Lector Biométrico Huella",
+                   tipo_equipo="Lector", marca="ZKTeco", modelo="F22",
+                   ubicacion="Puerta Oficinas Piso 2", estado="Activo", id_usuario=carlos.id_usuario),
+            Equipo(codigo_qr="QR-DVR-REC-003", nombre_equipo="DVR Grabador 16 Canales",
+                   tipo_equipo="Grabador DVR", marca="Dahua", modelo="XVR5116H",
+                   ubicacion="Rack de Telecomunicaciones", estado="Activo", id_usuario=isabel.id_usuario),
+        ]
+        db.add_all(equipos)
         db.commit()
-        db.refresh(equipo)
-        print(f"Created Equipo: {equipo.nombre_equipo} with id {equipo.id_equipo}")
+        for e in equipos:
+            db.refresh(e)
+        print(f"Creados {len(equipos)} equipos.")
 
-        # 3. Create Ticket
-        ticket = Ticket(
-            codigo="TCK-2026-001",
-            descripcion="El servidor principal está experimentando alta latencia e intermitencia en el puerto HTTP.",
-            fecha_reporte=datetime.utcnow(),
-            fecha_limite_resolucion=datetime.utcnow(),
-            cumple_sla=True,
-            categoria="Hardware",
-            estado_incidencia="Abierto",
-            severidad="Alta",
-            id_usuario=cliente.id_usuario,
-            id_equipo=equipo.id_equipo,
-            id_tecnico=None
-        )
-        db.add(ticket)
+        cam, biometrico, dvr = equipos
+
+        # ==========================================
+        # 3. TICKETS (Incidencias)
+        # ==========================================
+        tickets = [
+            Ticket(codigo="TCK-9281",
+                   descripcion="La pantalla del equipo de CCTV no enciende y emite un pitido constante.",
+                   fecha_reporte=datetime.utcnow(), cumple_sla=True, categoria="Hardware",
+                   estado_incidencia="Abierto", severidad="Alta",
+                   id_usuario=isabel.id_usuario, id_equipo=cam.id_equipo),
+            Ticket(codigo="TCK-4829",
+                   descripcion="Actualización de firmware solicitada para el lector biométrico.",
+                   fecha_reporte=datetime.utcnow(), cumple_sla=True, categoria="Software",
+                   estado_incidencia="En Proceso", severidad="Media",
+                   id_usuario=carlos.id_usuario, id_equipo=biometrico.id_equipo, id_tecnico=12),
+            Ticket(codigo="TCK-1102",
+                   descripcion="Cámara de entrada principal no graba, pantalla en negro en el DVR.",
+                   fecha_reporte=datetime.utcnow(), cumple_sla=True, categoria="Hardware",
+                   estado_incidencia="Abierto", severidad="Crítica",
+                   id_usuario=isabel.id_usuario, id_equipo=dvr.id_equipo),
+        ]
+        db.add_all(tickets)
         db.commit()
-        db.refresh(ticket)
-        print(f"Created Ticket: {ticket.codigo} with id {ticket.id_incidencia}")
+        for t in tickets:
+            db.refresh(t)
+        print(f"Creados {len(tickets)} tickets.")
 
-        # 4. Create ChatIncidencia
+        ticket_cam = tickets[0]
+
+        # ==========================================
+        # 4. CHAT DE INCIDENCIA (log de Telegram)
+        # ==========================================
         chat = ChatIncidencia(
-            mensaje="Hola, mi servidor está fallando. Adjunto log de errores.",
+            mensaje="Hola, la cámara de la entrada no enciende y hace un pitido. Adjunto foto.",
             tipo_mensaje="texto",
-            id_incidencia=ticket.id_incidencia,
-            id_usuario=cliente.id_usuario
+            id_incidencia=ticket_cam.id_incidencia,
+            id_usuario=isabel.id_usuario,
         )
         db.add(chat)
         db.commit()
-        print(f"Created Chat Log for Ticket {ticket.codigo}")
+        print("Creado log de chat para el primer ticket.")
 
-        # 5. Create Historial
-        historial = Historial(
-            accion_realizada="Creación de Ticket",
-            estado_anterior="Ninguno",
-            estado_nuevo="Abierto",
-            id_incidencia=ticket.id_incidencia,
-            id_usuario=cliente.id_usuario,
-            comentarios="Reportado por el bot de Telegram automáticamente."
-        )
-        db.add(historial)
+        # ==========================================
+        # 5. HISTORIAL (Trazabilidad)
+        # ==========================================
+        historiales = [
+            Historial(accion_realizada="Instalación de Equipo y Puesta en Marcha",
+                      estado_anterior="Nuevo", estado_nuevo="Activo",
+                      id_equipo=cam.id_equipo, id_usuario=isabel.id_usuario,
+                      comentarios="Se fijó soporte en muro exterior, cableado UTP Cat6 e inyección PoE probada."),
+            Historial(accion_realizada="Mantenimiento Preventivo Bimestral",
+                      estado_anterior="Activo", estado_nuevo="Activo",
+                      id_equipo=cam.id_equipo, id_usuario=isabel.id_usuario,
+                      comentarios="Limpieza de lente exterior y ajuste de ángulo de visión nocturna."),
+            Historial(accion_realizada="Reemplazo de Conector RJ45",
+                      estado_anterior="En Mantenimiento", estado_nuevo="Activo",
+                      id_equipo=dvr.id_equipo, id_usuario=isabel.id_usuario,
+                      comentarios="Se crimpó nuevo conector y se selló con cinta autofundente por humedad."),
+            Historial(accion_realizada="Creación de Ticket",
+                      estado_anterior="Ninguno", estado_nuevo="Abierto",
+                      id_incidencia=ticket_cam.id_incidencia, id_equipo=cam.id_equipo,
+                      id_usuario=isabel.id_usuario,
+                      comentarios="Reportado por el bot de Telegram automáticamente."),
+        ]
+        db.add_all(historiales)
         db.commit()
-        print("Created Historial Log entry.")
-        print("\nAll model instances seeded successfully! DB is ready for testing.")
+        print(f"Creados {len(historiales)} registros de historial.")
+
+        print("\n¡Datos de demostración cargados correctamente! La base de datos está lista.")
     finally:
         db.close()
+
 
 if __name__ == '__main__':
     seed()
