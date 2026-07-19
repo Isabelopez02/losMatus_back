@@ -254,6 +254,48 @@ def main():
     )
 
     app.add_handler(conv)
+    
+    # Manejador global para cuando el cliente escribe pero NO está en proceso de crear ticket
+    # (por ejemplo, cuando chatea con el técnico a través del dashboard)
+    async def mensaje_libre(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        telegram_id = str(update.effective_user.id)
+        mensaje = update.message.text.strip()
+        
+        # Buscar cliente
+        cliente = buscar_cliente_por_telegram(telegram_id)
+        if not cliente:
+            # Si no existe, sugerimos iniciar el bot
+            await update.message.reply_text("Hola, por favor usa /start para registrar tu problema.")
+            return
+
+        # Obtener los tickets del cliente para encontrar el último activo
+        try:
+            r = requests.get(f"{API}/clientes/{cliente['id_usuario']}/tickets", timeout=10)
+            if r.status_code == 200:
+                tickets = r.json()
+                # Buscar el primer ticket Abierto o En Proceso
+                ticket_activo = next((t for t in sorted(tickets, key=lambda x: x['id_incidencia'], reverse=True) 
+                                     if t['estado_incidencia'] in ['Abierto', 'En Proceso']), None)
+                
+                if ticket_activo:
+                    # Guardamos el mensaje en el historial del ticket para que el técnico lo vea
+                    crear_chat({
+                        "mensaje": mensaje,
+                        "tipo_mensaje": "texto",
+                        "id_incidencia": ticket_activo['id_incidencia'],
+                        "id_usuario": cliente['id_usuario']
+                    })
+                    # Si el técnico aún no lo ha tomado (Abierto), le damos un aviso automático.
+                    # Si ya está "En Proceso", el bot se silencia totalmente porque el técnico está hablando.
+                    if ticket_activo['estado_incidencia'] == 'Abierto':
+                        await update.message.reply_text("Tu incidencia ya está registrada y estamos buscando un técnico disponible para ti. ¡Pronto te escribirán por aquí!")
+                else:
+                    await update.message.reply_text("No tienes incidencias activas en este momento. Si tienes un nuevo problema, usa /start.")
+        except Exception as e:
+            print(f"[bot] Error guardando mensaje libre: {e}")
+
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje_libre))
+
     print("🤖 Bot de Telegram 'Matito' iniciado. Esperando mensajes...")
     app.run_polling()
 

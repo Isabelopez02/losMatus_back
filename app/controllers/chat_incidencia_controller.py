@@ -37,3 +37,53 @@ def create_chat(chat_data: ChatIncidenciaCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(chat)
     return chat
+
+
+from pydantic import BaseModel
+import requests
+from app.config import settings
+
+class MensajeEnviar(BaseModel):
+    id_incidencia: int
+    id_usuario: int
+    mensaje: str
+
+@chat_bp.post("/enviar", response_model=ChatIncidencia, status_code=status.HTTP_201_CREATED)
+def enviar_mensaje_telegram(datos: MensajeEnviar, db: Session = Depends(get_db)):
+    # 1. Obtener cliente para sacar su telegram_id
+    cliente = db.query(ClienteModel).filter(ClienteModel.id_usuario == datos.id_usuario).first()
+    if not cliente:
+        raise HTTPException(status_code=404, detail="Cliente not found")
+        
+    if not cliente.telegram_id:
+        raise HTTPException(status_code=400, detail="El cliente no tiene un ID de Telegram registrado")
+
+    # 2. Enviar por Telegram
+    token = settings.TELEGRAM_BOT_TOKEN
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    payload = {
+        "chat_id": cliente.telegram_id,
+        "text": f"👨‍🔧 *Técnico de Los Matus:*\n{datos.mensaje}",
+        "parse_mode": "Markdown"
+    }
+    
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+        r.raise_for_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error enviando mensaje a Telegram: {str(e)}")
+
+    # 3. Guardar en base de datos
+    chat = ChatIncidenciaModel(
+        fecha_envio=datetime.utcnow(),
+        mensaje=datos.mensaje,
+        tipo_mensaje="tecnico",
+        id_incidencia=datos.id_incidencia,
+        id_usuario=datos.id_usuario
+    )
+    db.add(chat)
+    db.commit()
+    db.refresh(chat)
+    
+    return chat
+
