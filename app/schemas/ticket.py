@@ -41,6 +41,7 @@ class TicketUpdate(BaseModel):
 
 class Ticket(TicketBase):
     id_incidencia: int
+    cliente_respondio: Optional[bool] = False
 
     class Config:
         from_attributes = True

@@ -14,7 +14,12 @@ ticket_bp = APIRouter()
 
 @ticket_bp.get("", response_model=List[Ticket])
 def get_tickets(db: Session = Depends(get_db)):
-    return db.query(TicketModel).all()
+    tickets = db.query(TicketModel).all()
+    from app.models.chat_incidencia import ChatIncidencia as ChatIncidenciaModel
+    for t in tickets:
+        ultimo_chat = db.query(ChatIncidenciaModel).filter(ChatIncidenciaModel.id_incidencia == t.id_incidencia).order_by(ChatIncidenciaModel.fecha_envio.desc()).first()
+        t.cliente_respondio = (ultimo_chat is not None and ultimo_chat.tipo_mensaje != 'tecnico')
+    return tickets
 
 @ticket_bp.get("/{id_incidencia}", response_model=Ticket)
 def get_ticket(id_incidencia: int, db: Session = Depends(get_db)):
