@@ -1,21 +1,14 @@
 """
-Bot de Telegram de soporte "Los Matus".
+Bot de Telegram de soporte "Los Matus" (Matito).
 
-Flujo:
+Flujo Humanizado:
   1. El cliente inicia el bot (/start).
-  2. Si es nuevo, el bot recopila sus datos (nombre, email, teléfono, dirección)
-     y le pide COMPARTIR SU UBICACIÓN (para Google Maps).
-  3. El cliente describe su problema en lenguaje natural.
-  4. La IA (Groq) clasifica la incidencia (categoría + severidad + resumen).
-  5. El bot crea el Cliente (si no existía), el Ticket y el log de chat en el backend.
-  6. Responde con el número de ticket y el análisis.
-
-Requisitos:
-  - Definir TELEGRAM_BOT_TOKEN en el .env (token de @BotFather).
-  - El backend FastAPI debe estar corriendo (python run.py).
-  - Opcional: GROQ_API_KEY en el .env para el análisis con IA real.
-
-Ejecutar:  python bot.py
+  2. Si es nuevo, el bot se presenta como "Matito" y pide el nombre.
+  3. Luego pide el problema.
+  4. La IA genera una pregunta de diagnóstico o sugerencia (manteniendo el historial corto).
+  5. El cliente responde con más detalle.
+  6. El bot pide enviar la ubicación real.
+  7. Se crea el Cliente (si no existía) y el Ticket con todo el contexto.
 """
 import sys
 import requests
@@ -26,12 +19,12 @@ from telegram.ext import (
 )
 
 from app.config import settings
-from app.services.ai_service import analizar_incidencia
+from app.services.ai_service import analizar_incidencia, generar_pregunta_diagnostico
 
 API = settings.API_BASE_URL
 
 # Estados de la conversación
-NOMBRE, EMAIL, TELEFONO, DIRECCION, UBICACION, PROBLEMA = range(6)
+NOMBRE, INDAGANDO, UBICACION = range(3)
 
 
 # ----------------------------------------------------------------------------
@@ -49,12 +42,6 @@ def buscar_cliente_por_telegram(telegram_id: str):
 
 def crear_cliente(datos: dict):
     r = requests.post(f"{API}/clientes", json=datos, timeout=15)
-    r.raise_for_status()
-    return r.json()
-
-
-def actualizar_cliente(id_usuario: int, datos: dict):
-    r = requests.put(f"{API}/clientes/{id_usuario}", json=datos, timeout=15)
     r.raise_for_status()
     return r.json()
 
@@ -79,24 +66,22 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.effective_user.id)
     context.user_data.clear()
     context.user_data["telegram_id"] = telegram_id
+    context.user_data["historial_mensajes"] = []
+    context.user_data["problema_completo_texto"] = ""
 
     cliente = buscar_cliente_por_telegram(telegram_id)
     if cliente:
         context.user_data["cliente"] = cliente
+        context.user_data["nombre"] = cliente.get("nombre", "")
         await update.message.reply_text(
-            f"¡Hola de nuevo, {cliente['nombre']}! 👋\n"
-            "Soy el asistente de soporte de *Los Matus*.\n\n"
-            "Cuéntame, ¿qué problema estás presentando?",
-            parse_mode="Markdown",
+            f"Hola {cliente['nombre']}, ¿tuviste algún inconveniente hoy o en qué te puedo ayudar?",
             reply_markup=ReplyKeyboardRemove(),
         )
-        return PROBLEMA
+        return INDAGANDO
 
     await update.message.reply_text(
-        "¡Hola! 👋 Soy el asistente de soporte de *Los Matus* (seguridad electrónica).\n\n"
-        "Voy a registrar tu incidencia. Primero, unos datos rápidos.\n\n"
-        "¿Cuál es tu *nombre completo*?",
-        parse_mode="Markdown",
+        "¡Hola! mucho gusto, te saluda tu asesor Matito 👋\n\n"
+        "¿Con quién tengo el gusto? Me puede brindar su nombre por favor...",
         reply_markup=ReplyKeyboardRemove(),
     )
     return NOMBRE
@@ -104,108 +89,104 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def recibir_nombre(update: Update, context: ContextTypes.DEFAULT_TYPE):
     partes = update.message.text.strip().split()
-    context.user_data["nombre"] = partes[0]
+    nombre = partes[0]
+    context.user_data["nombre"] = nombre
     context.user_data["apellido_paterno"] = partes[1] if len(partes) > 1 else ""
     context.user_data["apellido_materno"] = partes[2] if len(partes) > 2 else ""
-    await update.message.reply_text("📧 ¿Cuál es tu *correo electrónico*? (o escribe /saltar)", parse_mode="Markdown")
-    return EMAIL
-
-
-async def recibir_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["email"] = update.message.text.strip()
-    await update.message.reply_text("📱 ¿Cuál es tu *número de teléfono*?", parse_mode="Markdown")
-    return TELEFONO
-
-
-async def saltar_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["email"] = None
-    await update.message.reply_text("📱 ¿Cuál es tu *número de teléfono*?", parse_mode="Markdown")
-    return TELEFONO
-
-
-async def recibir_telefono(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["telefono"] = update.message.text.strip()
-    await update.message.reply_text("🏠 ¿Cuál es tu *dirección*?", parse_mode="Markdown")
-    return DIRECCION
-
-
-async def recibir_direccion(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["direccion"] = update.message.text.strip()
-    boton = ReplyKeyboardMarkup(
-        [[KeyboardButton("📍 Compartir mi ubicación", request_location=True)]],
-        resize_keyboard=True, one_time_keyboard=True,
-    )
+    
     await update.message.reply_text(
-        "📍 Por favor, *comparte tu ubicación* para que el técnico pueda llegar.\n"
-        "(o escribe /saltar si prefieres no hacerlo)",
-        parse_mode="Markdown", reply_markup=boton,
+        f"Perfecto {nombre}, cuéntame, ¿qué problema estás presentando o en qué te puedo ayudar?",
     )
-    return UBICACION
+    return INDAGANDO
+
+
+async def indagar_problema(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    mensaje = update.message.text.strip()
+    
+    # Acumular todo el texto para crear el ticket luego
+    context.user_data["problema_completo_texto"] += f"Cliente: {mensaje}\n"
+    
+    # Agregamos al historial para la IA
+    historial = context.user_data["historial_mensajes"]
+    historial.append({"role": "user", "content": mensaje})
+    
+    await update.message.chat.send_action(action="typing")
+    
+    # Generar respuesta de la IA
+    respuesta_ia = generar_pregunta_diagnostico(historial)
+    historial.append({"role": "assistant", "content": respuesta_ia})
+    context.user_data["problema_completo_texto"] += f"Matito: {respuesta_ia}\n"
+    
+    # Comprobar si la IA determinó que la indagación está COMPLETA
+    if "[COMPLETO]" in respuesta_ia:
+        respuesta_limpia = respuesta_ia.replace("[COMPLETO]", "").strip()
+        
+        boton = ReplyKeyboardMarkup(
+            [[KeyboardButton("📍 Compartir mi ubicación", request_location=True)]],
+            resize_keyboard=True, one_time_keyboard=True,
+        )
+        
+        # Enviar el mensaje final de la IA junto con la petición de ubicación
+        mensaje_final = f"{respuesta_limpia}\n\n¿Me puedes enviar tu ubicación real por favor para poder enviar a un técnico? (O escribe /saltar)"
+        await update.message.reply_text(mensaje_final, reply_markup=boton)
+        return UBICACION
+    else:
+        # Seguir indagando
+        await update.message.reply_text(respuesta_ia)
+        return INDAGANDO
 
 
 async def recibir_ubicacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     loc = update.message.location
     context.user_data["latitud"] = loc.latitude
     context.user_data["longitud"] = loc.longitude
-    return await _crear_cliente_y_pedir_problema(update, context)
+    return await _procesar_y_crear_ticket(update, context)
 
 
 async def saltar_ubicacion(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["latitud"] = None
     context.user_data["longitud"] = None
-    return await _crear_cliente_y_pedir_problema(update, context)
+    return await _procesar_y_crear_ticket(update, context)
 
 
-async def _crear_cliente_y_pedir_problema(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def _procesar_y_crear_ticket(update: Update, context: ContextTypes.DEFAULT_TYPE):
     d = context.user_data
-    payload = {
-        "nombre": d.get("nombre"),
-        "apellido_paterno": d.get("apellido_paterno") or None,
-        "apellido_materno": d.get("apellido_materno") or None,
-        "email": d.get("email") or None,
-        "telefono": d.get("telefono") or None,
-        "direccion": d.get("direccion") or None,
-        "telegram_id": d.get("telegram_id"),
-        "latitud": d.get("latitud"),
-        "longitud": d.get("longitud"),
-        "activo": True,
-    }
-    try:
-        cliente = crear_cliente(payload)
-        context.user_data["cliente"] = cliente
-    except Exception as e:  # noqa: BLE001
-        print(f"[bot] Error creando cliente: {e}")
-        await update.message.reply_text(
-            "⚠️ Hubo un problema registrando tus datos. ¿El backend está corriendo? Intenta con /start de nuevo.",
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        return ConversationHandler.END
-
-    await update.message.reply_text(
-        f"✅ ¡Datos registrados, {cliente['nombre']}!\n\n"
-        "Ahora cuéntame: ¿qué problema estás presentando? Descríbelo con tus palabras.",
-        reply_markup=ReplyKeyboardRemove(),
-    )
-    return PROBLEMA
-
-
-async def recibir_problema(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    mensaje = update.message.text.strip()
-    cliente = context.user_data.get("cliente")
-
+    cliente = d.get("cliente")
+    
+    # 1. Crear o actualizar cliente si es nuevo
     if not cliente:
-        await update.message.reply_text("Empecemos de nuevo con /start, por favor.")
-        return ConversationHandler.END
+        payload = {
+            "nombre": d.get("nombre"),
+            "apellido_paterno": d.get("apellido_paterno") or None,
+            "apellido_materno": d.get("apellido_materno") or None,
+            "telegram_id": d.get("telegram_id"),
+            "latitud": d.get("latitud"),
+            "longitud": d.get("longitud"),
+            "activo": True,
+        }
+        try:
+            cliente = crear_cliente(payload)
+            context.user_data["cliente"] = cliente
+        except Exception as e:
+            print(f"[bot] Error creando cliente: {e}")
+            await update.message.reply_text(
+                "⚠️ Hubo un problema registrando tus datos. Intenta con /start de nuevo.",
+                reply_markup=ReplyKeyboardRemove(),
+            )
+            return ConversationHandler.END
 
-    await update.message.reply_text("🤖 Analizando tu incidencia con IA...")
+    await update.message.reply_text("🤖 Registrando incidencia y asignando técnico...", reply_markup=ReplyKeyboardRemove())
 
-    # 1. Análisis con IA
-    analisis = analizar_incidencia(mensaje)
+    # Consolidar el problema de todo el historial de conversación
+    problema_completo = d.get("problema_completo_texto", "Sin detalles.")
 
-    # 2. Crear el ticket
+    # 2. Análisis definitivo con IA (para categorizar y sugerir al técnico en la BD)
+    analisis = analizar_incidencia(problema_completo)
+
+    # 3. Crear el ticket (RECIÉN AHORA SE CREA EL TICKET)
     ticket_payload = {
         "codigo": analisis["codigo"],
-        "descripcion": mensaje,
+        "descripcion": problema_completo,
         "categoria": analisis["categoria"],
         "severidad": analisis["severidad"],
         "sugerencia_ia": analisis.get("sugerencia"),
@@ -215,29 +196,28 @@ async def recibir_problema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     }
     try:
         ticket = crear_ticket(ticket_payload)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[bot] Error creando ticket: {e}")
-        await update.message.reply_text("⚠️ No pude registrar el ticket. Verifica que el backend esté activo.")
+        await update.message.reply_text("⚠️ No pude registrar el ticket. Verifica que el sistema esté activo.")
         return ConversationHandler.END
 
-    # 3. Guardar el mensaje del chat
-    crear_chat({
-        "mensaje": mensaje,
-        "tipo_mensaje": "texto",
-        "id_incidencia": ticket["id_incidencia"],
-        "id_usuario": cliente["id_usuario"],
-    })
+    # 4. Guardar los mensajes del chat como evidencia en la base de datos
+    for msg in d.get("historial_mensajes", []):
+        crear_chat({
+            "mensaje": msg["content"],
+            "tipo_mensaje": "texto" if msg["role"] == "user" else "bot",
+            "id_incidencia": ticket["id_incidencia"],
+            "id_usuario": cliente["id_usuario"],
+        })
 
-    # 4. Responder al cliente
-    icono_ia = "🧠 (IA)" if analisis.get("con_ia") else "⚙️ (reglas)"
+    # 5. Responder al cliente
+    icono_ia = "🧠 (Asistido por IA)" if analisis.get("con_ia") else "⚙️"
     await update.message.reply_text(
-        f"{analisis.get('respuesta', 'He registrado tu incidencia.')}\n\n"
+        f"¡Listo {d.get('nombre')}! Tu problema ha sido registrado y un técnico ha sido asignado.\n\n"
         f"📋 *Ticket:* `{ticket['codigo']}`\n"
-        f"📂 *Categoría:* {analisis['categoria']}\n"
-        f"⚠️ *Severidad:* {analisis['severidad']}\n"
-        f"🔎 *Resumen:* {analisis['resumen']}\n"
-        f"_Análisis {icono_ia}_\n\n"
-        "Un técnico ha sido notificado. Puedes reportar otra incidencia con /start.",
+        f"⚠️ *Severidad:* {analisis['severidad']}\n\n"
+        f"Cualquier novedad te contactaremos por aquí. {icono_ia}\n"
+        "Puedes reportar otra incidencia con /start.",
         parse_mode="Markdown",
     )
     return ConversationHandler.END
@@ -249,14 +229,13 @@ async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 def main():
-    # La consola de Windows usa cp1252 y no puede imprimir emojis; forzamos UTF-8.
     try:
         sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
 
     if not settings.TELEGRAM_BOT_TOKEN:
-        print("ERROR: Falta TELEGRAM_BOT_TOKEN en el .env. Crea el bot con @BotFather y pega el token.")
+        print("ERROR: Falta TELEGRAM_BOT_TOKEN en el .env.")
         return
 
     app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
@@ -265,23 +244,17 @@ def main():
         entry_points=[CommandHandler("start", start)],
         states={
             NOMBRE: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_nombre)],
-            EMAIL: [
-                CommandHandler("saltar", saltar_email),
-                MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_email),
-            ],
-            TELEFONO: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_telefono)],
-            DIRECCION: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_direccion)],
+            INDAGANDO: [MessageHandler(filters.TEXT & ~filters.COMMAND, indagar_problema)],
             UBICACION: [
                 MessageHandler(filters.LOCATION, recibir_ubicacion),
                 CommandHandler("saltar", saltar_ubicacion),
             ],
-            PROBLEMA: [MessageHandler(filters.TEXT & ~filters.COMMAND, recibir_problema)],
         },
         fallbacks=[CommandHandler("cancelar", cancelar)],
     )
 
     app.add_handler(conv)
-    print("🤖 Bot de Telegram 'Los Matus' iniciado. Esperando mensajes...")
+    print("🤖 Bot de Telegram 'Matito' iniciado. Esperando mensajes...")
     app.run_polling()
 
 

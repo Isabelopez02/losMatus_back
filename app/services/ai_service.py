@@ -132,3 +132,48 @@ def analizar_incidencia(mensaje: str) -> dict:
     resultado["codigo"] = _generar_codigo()
     resultado["con_ia"] = con_ia
     return resultado
+
+def generar_pregunta_diagnostico(historial_mensajes: list) -> str:
+    """
+    Toma un historial de mensajes (ej. [{'role': 'user', 'content': 'mi camara falla'}])
+    y usa la IA para generar una pregunta empática y natural, sugiriendo pasos básicos
+    o pidiendo más detalles, actuando como 'Matito'.
+    """
+    if not settings.GROQ_API_KEY:
+        return "Entiendo. ¿Me podrías dar un poco más de detalle sobre lo que ocurre? ¿Ya probaste apagar y encender el equipo?"
+        
+    system_prompt = (
+        "Eres Matito, un asesor técnico amable, empático y servicial de 'Los Matus' (empresa de seguridad electrónica). "
+        "El cliente reporta un problema técnico. Tu objetivo es indagar sobre el problema, pero SIN ABRUMAR al cliente. "
+        "REGLAS CRÍTICAS:\n"
+        "1. Haz MÁXIMO UNA o DOS preguntas en total durante toda la conversación. No hagas interrogatorios largos.\n"
+        "2. Si el cliente responde 'no sé', 'ayuda', 'por favor', o demuestra no tener conocimientos técnicos, DETENTE INMEDIATAMENTE.\n"
+        "3. SI el cliente ya te dio un detalle inicial, o si se frustra, o si no sabe responder, o si ya hiciste 1-2 preguntas: "
+        "responde amablemente diciendo que comprendes la situación y que será necesario enviar un técnico, "
+        "Y DEBES INCLUIR LA PALABRA CLAVE EXACTA '[COMPLETO]' al final de tu mensaje. (Ej. 'Comprendo perfectamente, no te preocupes. Enviaremos a un técnico a revisarlo. [COMPLETO]')\n"
+        "4. Si aún necesitas hacer UNA pregunta súper básica (ej. '¿Ya intentaste reiniciar?'), hazla, pero NUNCA ofrezcas enviar un técnico si no pones [COMPLETO]."
+    )
+    
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {settings.GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    
+    mensajes_api = [{"role": "system", "content": system_prompt}]
+    mensajes_api.extend(historial_mensajes)
+    
+    payload = {
+        "model": settings.GROQ_MODEL,
+        "messages": mensajes_api,
+        "temperature": 0.5,
+    }
+    
+    try:
+        resp = requests.post(url, headers=headers, json=payload, timeout=25)
+        resp.raise_for_status()
+        content = resp.json()["choices"][0]["message"]["content"]
+        return content.strip()
+    except Exception as e:
+        print(f"[ai_service] Falló Groq al generar pregunta. Usando fallback. Error: {e}")
+        return "Entiendo. ¿Me podrías dar un poco más de detalle? ¿Ya intentaste reiniciar el equipo?"
