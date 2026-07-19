@@ -186,7 +186,7 @@ async def _procesar_y_crear_ticket(update: Update, context: ContextTypes.DEFAULT
     # 3. Crear el ticket (RECIÉN AHORA SE CREA EL TICKET)
     ticket_payload = {
         "codigo": analisis["codigo"],
-        "descripcion": problema_completo,
+        "descripcion": analisis["resumen"],  # Se usa el resumen de la IA en vez de todo el chat
         "categoria": analisis["categoria"],
         "severidad": analisis["severidad"],
         "sugerencia_ia": analisis.get("sugerencia"),
