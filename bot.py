@@ -228,7 +228,10 @@ async def cancelar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 
-def main():
+bot_app = None
+
+async def start_bot():
+    global bot_app
     try:
         sys.stdout.reconfigure(encoding="utf-8")
     except Exception:
@@ -238,7 +241,7 @@ def main():
         print("ERROR: Falta TELEGRAM_BOT_TOKEN en el .env.")
         return
 
-    app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
+    bot_app = Application.builder().token(settings.TELEGRAM_BOT_TOKEN).build()
 
     conv = ConversationHandler(
         entry_points=[CommandHandler("start", start)],
@@ -253,7 +256,7 @@ def main():
         fallbacks=[CommandHandler("cancelar", cancelar)],
     )
 
-    app.add_handler(conv)
+    bot_app.add_handler(conv)
     
     # Manejador global para cuando el cliente escribe pero NO está en proceso de crear ticket
     # (por ejemplo, cuando chatea con el técnico a través del dashboard)
@@ -294,11 +297,19 @@ def main():
         except Exception as e:
             print(f"[bot] Error guardando mensaje libre: {e}")
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje_libre))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, mensaje_libre))
 
-    print("🤖 Bot de Telegram 'Matito' iniciado. Esperando mensajes...")
-    app.run_polling()
+    print("🤖 Bot de Telegram 'Matito' iniciando en segundo plano...")
+    await bot_app.initialize()
+    await bot_app.start()
+    await bot_app.updater.start_polling()
+    print("🤖 Bot de Telegram 'Matito' está escuchando mensajes.")
 
-
-if __name__ == "__main__":
-    main()
+async def stop_bot():
+    global bot_app
+    if bot_app:
+        print("🛑 Deteniendo Bot de Telegram 'Matito'...")
+        await bot_app.updater.stop()
+        await bot_app.stop()
+        await bot_app.shutdown()
+        print("🛑 Bot detenido.")

@@ -33,10 +33,23 @@ app.include_router(historial_bp, prefix="/api/historial", tags=["Historial"])
 # Auto-create tables
 Base.metadata.create_all(bind=engine)
 
+import asyncio
+from bot import start_bot, stop_bot
+
+@app.on_event("startup")
+async def startup_event():
+    # Arrancar el bot en segundo plano
+    asyncio.create_task(start_bot())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    # Detener el bot elegantemente
+    await stop_bot()
+
 @app.get("/")
 def read_root():
     return {
-        "message": "FastAPI MVC Backend is running!",
+        "message": "FastAPI MVC Backend & Telegram Bot is running!",
         "status": "success",
         "docs": "/docs"
     }
