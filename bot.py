@@ -30,33 +30,43 @@ NOMBRE, INDAGANDO, UBICACION = range(3)
 # ----------------------------------------------------------------------------
 # Helpers de API (backend FastAPI)
 # ----------------------------------------------------------------------------
-def buscar_cliente_por_telegram(telegram_id: str):
-    try:
-        r = requests.get(f"{API}/clientes/telegram/{telegram_id}", timeout=15)
-        if r.status_code == 200:
-            return r.json()
-    except requests.RequestException as e:
-        print(f"[bot] Error buscando cliente: {e}")
-    return None
+import asyncio
+
+async def buscar_cliente_por_telegram(telegram_id: str):
+    def _do():
+        try:
+            r = requests.get(f"{API}/clientes/telegram/{telegram_id}", timeout=15)
+            if r.status_code == 200:
+                return r.json()
+        except requests.RequestException as e:
+            print(f"[bot] Error buscando cliente: {e}")
+        return None
+    return await asyncio.to_thread(_do)
 
 
-def crear_cliente(datos: dict):
-    r = requests.post(f"{API}/clientes", json=datos, timeout=15)
-    r.raise_for_status()
-    return r.json()
+async def crear_cliente(datos: dict):
+    def _do():
+        r = requests.post(f"{API}/clientes", json=datos, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    return await asyncio.to_thread(_do)
 
 
-def crear_ticket(datos: dict):
-    r = requests.post(f"{API}/tickets", json=datos, timeout=15)
-    r.raise_for_status()
-    return r.json()
+async def crear_ticket(datos: dict):
+    def _do():
+        r = requests.post(f"{API}/tickets", json=datos, timeout=15)
+        r.raise_for_status()
+        return r.json()
+    return await asyncio.to_thread(_do)
 
 
-def crear_chat(datos: dict):
-    try:
-        requests.post(f"{API}/chats", json=datos, timeout=15)
-    except requests.RequestException as e:
-        print(f"[bot] Error guardando chat: {e}")
+async def crear_chat(datos: dict):
+    def _do():
+        try:
+            requests.post(f"{API}/chats", json=datos, timeout=15)
+        except requests.RequestException as e:
+            print(f"[bot] Error guardando chat: {e}")
+    await asyncio.to_thread(_do)
 
 
 # ----------------------------------------------------------------------------
@@ -69,7 +79,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["historial_mensajes"] = []
     context.user_data["problema_completo_texto"] = ""
 
-    cliente = buscar_cliente_por_telegram(telegram_id)
+    cliente = await buscar_cliente_por_telegram(telegram_id)
     if cliente:
         context.user_data["cliente"] = cliente
         context.user_data["nombre"] = cliente.get("nombre", "")
@@ -113,7 +123,7 @@ async def indagar_problema(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.chat.send_action(action="typing")
     
     # Generar respuesta de la IA
-    respuesta_ia = generar_pregunta_diagnostico(historial)
+    respuesta_ia = await asyncio.to_thread(generar_pregunta_diagnostico, historial)
     historial.append({"role": "assistant", "content": respuesta_ia})
     context.user_data["problema_completo_texto"] += f"Matito: {respuesta_ia}\n"
     
@@ -165,7 +175,7 @@ async def _procesar_y_crear_ticket(update: Update, context: ContextTypes.DEFAULT
             "activo": True,
         }
         try:
-            cliente = crear_cliente(payload)
+            cliente = await crear_cliente(payload)
             context.user_data["cliente"] = cliente
         except Exception as e:
             print(f"[bot] Error creando cliente: {e}")
@@ -181,7 +191,7 @@ async def _procesar_y_crear_ticket(update: Update, context: ContextTypes.DEFAULT
     problema_completo = d.get("problema_completo_texto", "Sin detalles.")
 
     # 2. Análisis definitivo con IA (para categorizar y sugerir al técnico en la BD)
-    analisis = analizar_incidencia(problema_completo)
+    analisis = await asyncio.to_thread(analizar_incidencia, problema_completo)
 
     # 3. Crear el ticket (RECIÉN AHORA SE CREA EL TICKET)
     ticket_payload = {
@@ -195,7 +205,7 @@ async def _procesar_y_crear_ticket(update: Update, context: ContextTypes.DEFAULT
         "id_usuario": cliente["id_usuario"],
     }
     try:
-        ticket = crear_ticket(ticket_payload)
+        ticket = await crear_ticket(ticket_payload)
     except Exception as e:
         print(f"[bot] Error creando ticket: {e}")
         await update.message.reply_text("⚠️ No pude registrar el ticket. Verifica que el sistema esté activo.")
@@ -203,7 +213,7 @@ async def _procesar_y_crear_ticket(update: Update, context: ContextTypes.DEFAULT
 
     # 4. Guardar los mensajes del chat como evidencia en la base de datos
     for msg in d.get("historial_mensajes", []):
-        crear_chat({
+        await crear_chat({
             "mensaje": msg["content"],
             "tipo_mensaje": "texto" if msg["role"] == "user" else "bot",
             "id_incidencia": ticket["id_incidencia"],
@@ -265,7 +275,7 @@ async def start_bot():
         mensaje = update.message.text.strip()
         
         # Buscar cliente
-        cliente = buscar_cliente_por_telegram(telegram_id)
+        cliente = await buscar_cliente_por_telegram(telegram_id)
         if not cliente:
             # Si no existe, sugerimos iniciar el bot
             await update.message.reply_text("Hola, por favor usa /start para registrar tu problema.")
@@ -273,7 +283,9 @@ async def start_bot():
 
         # Obtener los tickets del cliente para encontrar el último activo
         try:
-            r = requests.get(f"{API}/clientes/{cliente['id_usuario']}/tickets", timeout=10)
+            def _get_tickets():
+                return requests.get(f"{API}/clientes/{cliente['id_usuario']}/tickets", timeout=10)
+            r = await asyncio.to_thread(_get_tickets)
             if r.status_code == 200:
                 tickets = r.json()
                 # Buscar el primer ticket Abierto o En Proceso
@@ -282,7 +294,7 @@ async def start_bot():
                 
                 if ticket_activo:
                     # Guardamos el mensaje en el historial del ticket para que el técnico lo vea
-                    crear_chat({
+                    await crear_chat({
                         "mensaje": mensaje,
                         "tipo_mensaje": "texto",
                         "id_incidencia": ticket_activo['id_incidencia'],
