@@ -302,8 +302,21 @@ async def start_bot():
     print("🤖 Bot de Telegram 'Matito' iniciando en segundo plano...")
     await bot_app.initialize()
     await bot_app.start()
-    await bot_app.updater.start_polling()
-    print("🤖 Bot de Telegram 'Matito' está escuchando mensajes.")
+    
+    # Manejar Conflict (overlap de contenedores en despliegues) reintentando cada 5 seg
+    import asyncio
+    from telegram.error import Conflict
+    while True:
+        try:
+            await bot_app.updater.start_polling(drop_pending_updates=True)
+            print("🤖 Bot de Telegram 'Matito' está escuchando mensajes.")
+            break
+        except Conflict:
+            print("⚠️ Conflicto detectado (posible despliegue superpuesto). Reintentando en 5s...")
+            await asyncio.sleep(5)
+        except Exception as e:
+            print(f"⚠️ Error al iniciar polling: {e}")
+            break
 
 async def stop_bot():
     global bot_app
