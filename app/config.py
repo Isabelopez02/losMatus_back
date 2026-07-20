@@ -6,7 +6,15 @@ load_dotenv()
 
 class Settings:
     SECRET_KEY: str = os.getenv("SECRET_KEY", "super-secret-key-change-me")
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./database.db")
+    
+    # Supabase y otras URLs pueden incluir ?pgbouncer=true, lo cual rompe psycopg2
+    _raw_db_url = os.getenv("DATABASE_URL", "sqlite:///./database.db")
+    if "?pgbouncer=true" in _raw_db_url:
+        _raw_db_url = _raw_db_url.replace("?pgbouncer=true", "")
+    elif "&pgbouncer=true" in _raw_db_url:
+        _raw_db_url = _raw_db_url.replace("&pgbouncer=true", "")
+        
+    DATABASE_URL: str = _raw_db_url
 
     # URL base del propio backend (usada por el bot de Telegram)
     API_BASE_URL: str = os.getenv("API_BASE_URL", "http://localhost:8000/api")
